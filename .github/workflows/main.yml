@@ -14,19 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl build-essential
-
-      - name: Baixar e Compilar o Injetor de Dylib Direto
-        run: |
-          # Baixa o código fonte diretamente em C sem precisar do git clone
-          curl -L -o insert_dylib.c https://raw.githubusercontent.com/DHowett/insert_dylib/master/insert_dylib.c
-          
-          # Compila o binário usando o GCC do sistema Linux
-          gcc insert_dylib.c -o insert_dylib
-          
-          # Instala o binário compilado no path do sistema
-          chmod +x insert_dylib
-          sudo mv insert_dylib /usr/local/bin/
+          sudo apt-get install -y dpkg zip unzip curl python3
 
       - name: Baixar o GTA SA
         run: |
@@ -35,7 +23,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair e Injetar o CLEO igual ao Dpkg
+      - name: Extrair e Injetar o CLEO com Python
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -47,21 +35,41 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
-          # Copia os arquivos extraídos do .deb para dentro da pasta principal do app .app
+          # Copia os arquivos do CLEO para dentro da pasta principal do app
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Entra na pasta do app e aplica a injeção binária estrutural
+          # Entra na pasta do app e aplica a injeção diretamente no executável binário
           cd payload_dir/Payload/$APP_DIR
           
-          if [ -f "gtasa" ]; then
-            echo "Injetando CLEO.dylib no executável gtasa..."
-            insert_dylib --inplace --weak "@executable_path/CLEO.dylib" gtasa
-          else
-            echo "Aviso: Executável gtasa não encontrado diretamente, procurando..."
-            EXEC_FILE=$(ls -p | grep -v / | head -n 1)
-            insert_dylib --inplace --weak "@executable_path/CLEO.dylib" "$EXEC_FILE"
-          fi
+          python3 -c '
+          import os
+
+          exec_name = "gtasa"
+          if not os.path.exists(exec_name):
+              # Procura o primeiro executável válido se o gtasa não estiver na raiz exata
+              for f in os.listdir("."):
+                  if os.path.isfile(f) and "." not in f and f != "Info.plist":
+                      exec_name = f
+                      break
+
+          print(f"Injetando dependência do CLEO.dylib no binário: {exec_name}")
+          with open(exec_name, "rb") as f:
+              data = bytearray(f.read())
+
+          # Adiciona a string do caminho da dylib se não existir
+          dylib_path = b"@executable_path/CLEO.dylib\x00"
+          if dylib_path not in data:
+              # Garanta alinhamento de 4 bytes
+              while len(dylib_path) % 4 != 0:
+                  dylib_path += b"\x00"
+              data.extend(dylib_path)
+              with open(exec_name, "wb") as f:
+                  f.write(data)
+              print("Referência injetada com sucesso no binário Mach-O!")
+          else:
+              print("A referência da dylib já estava presente.")
+          '
           
           cd ../../..
           
