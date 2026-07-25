@@ -11,25 +11,27 @@ jobs:
       - name: Baixar o Repositório
         uses: actions/checkout@v3
 
-      - name: Instalar Ferramentas de Descompactação
+      - name: Instalar Ferramentas de Descompactação e Compilação
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl
+          sudo apt-get install -y dpkg zip unzip curl git build-essential
+
+      - name: Baixar e Instalar insert_dylib (Injetor de dylib)
+        run: |
+          git clone https://github.com/DHowett/insert_dylib.git
+          cd insert_dylib
+          make
+          sudo cp insert_dylib /usr/local/bin/
+          cd ..
 
       - name: Baixar o GTA SA
         run: |
           echo "Baixando o IPA do GTA SA..."
-          # Usando parâmetros do curl para seguir redirecionamentos corretamente
           curl -c ./cookie -s -L "https://www.mediafire.com/file/dri0plgg65v34fu/GTA+PTBR.ipa/file" > ./page.html
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
-          echo "Link direto extraído: $DIRECT_URL"
           curl -L -o gta.ipa "$DIRECT_URL"
-          
-          # Verifica se o arquivo baixado é realmente um zip/ipa válido
-          file gta.ipa
-          ls -lh gta.ipa
 
-      - name: Injetar o CLEO
+      - name: Injetar o CLEO e Modificar o Executável
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -41,8 +43,19 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
+          # Copia os arquivos do CLEO para dentro da pasta do app
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
+          
+          # Identifica o nome do binário executável principal do GTA SA
+          # (Geralmente se chama 'gta_sa' dentro da pasta .app)
+          EXEC_NAME=$(defaults read "$(pwd)/payload_dir/Payload/$APP_DIR/Info.plist" CFBundleExecutable 2>/dev/null || echo "gta_sa")
+          echo "Executável principal encontrado: $EXEC_NAME"
+          
+          # Aplica a injeção usando o insert_dylib para carregar o CLEO.dylib automaticamente
+          cd payload_dir/Payload/$APP_DIR
+          insert_dylib --inplace --weak "@executable_path/CLEO.dylib" "$EXEC_NAME"
+          cd ../../..
           
           echo "Compactando de volta para .ipa..."
           cd payload_dir
