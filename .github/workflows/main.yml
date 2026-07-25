@@ -23,7 +23,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair, Atualizar CLEO.plist e Injetar com Python
+      - name: Extrair, Ajustar Frameworks e Injetar com Python
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -35,25 +35,27 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
-          # Copia os arquivos do CLEO para dentro da pasta principal do app
-          mkdir -p payload_dir/Payload/$APP_DIR/
-          cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
+          # Cria a estrutura de Frameworks dentro do app (padrão aceito por assinadores de IPA)
+          mkdir -p payload_dir/Payload/$APP_DIR/Frameworks
           
-          # Entra na pasta do app e executa o script Python integrado
+          # Copia a dylib e o plist para a pasta Frameworks
+          cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.dylib payload_dir/Payload/$APP_DIR/Frameworks/
+          cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.plist payload_dir/Payload/$APP_DIR/Frameworks/ || true
+          
+          # Entra na pasta do app e executa o script de injeção e ajuste do plist
           cd payload_dir/Payload/$APP_DIR
           
           python3 -c '
           import os
           import plistlib
 
-          cleo_plist_path = "CLEO.plist"
+          # 1. Atualiza o CLEO.plist para aceitar "gtasa" e o caminho da Framework
+          cleo_plist_path = "Frameworks/CLEO.plist"
           if os.path.exists(cleo_plist_path):
-              print("Lendo CLEO.plist...")
               try:
                   with open(cleo_plist_path, "rb") as fp:
                       plist_data = plistlib.load(fp)
-              except Exception as e:
-                  print(f"Erro ao ler plist diretamente (pode estar em formato obsoleto/binário): {e}")
+              except:
                   plist_data = {}
 
               if not isinstance(plist_data, dict):
@@ -67,13 +69,13 @@ jobs:
               
               with open(cleo_plist_path, "wb") as fp:
                   plistlib.dump(plist_data, fp, fmt=plistlib.FMT_XML)
-              print("CLEO.plist atualizado e convertido para formato XML com sucesso!")
+              print("CLEO.plist atualizado com sucesso!")
 
-          # Injeta a referência da dylib no binário gtasa nativo
+          # 2. Injeta a referência apontando para o Frameworks no binário gtasa
           exec_name = "gtasa"
           if not os.path.exists(exec_name):
               for f in os.listdir("."):
-                  if os.path.isfile(f) and "." not in f and f != "Info.plist" and f != "CLEO.dylib":
+                  if os.path.isfile(f) and "." not in f and f != "Info.plist":
                       exec_name = f
                       break
 
@@ -81,14 +83,15 @@ jobs:
           with open(exec_name, "rb") as f:
               data = bytearray(f.read())
 
-          dylib_path = b"@executable_path/CLEO.dylib\x00"
+          # Caminho relativo para a dylib dentro da pasta Frameworks
+          dylib_path = b"@executable_path/Frameworks/CLEO.dylib\x00"
           if dylib_path not in data:
               while len(dylib_path) % 4 != 0:
                   dylib_path += b"\x00"
               data.extend(dylib_path)
               with open(exec_name, "wb") as f:
                   f.write(data)
-              print("Referência injetada com sucesso no binário Mach-O!")
+              print("Referência injetada com sucesso para a pasta Frameworks!")
           else:
               print("A referência da dylib já estava presente.")
           '
