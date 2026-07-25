@@ -11,10 +11,18 @@ jobs:
       - name: Baixar o Repositório
         uses: actions/checkout@v3
 
-      - name: Instalar Ferramentas de Descompactação
+      - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3
+          sudo apt-get install -y dpkg zip unzip curl build-essential git
+
+      - name: Compilar o Injetor de Dylib
+        run: |
+          git clone https://github.com/DHowett/insert_dylib.git
+          cd insert_dylib
+          make
+          sudo cp insert_dylib /usr/local/bin/
+          cd ..
 
       - name: Baixar o GTA SA
         run: |
@@ -23,7 +31,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Injetar o CLEO e Modificar o Executável
+      - name: Extrair e Injetar o CLEO igual ao Dpkg
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -35,29 +43,22 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
+          # Copia os arquivos extraídos do .deb exatamente para a raiz do .app (mesmo local do executável)
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Detecta automaticamente o executável principal lendo o Info.plist ou pegando o arquivo principal
+          # Entra na pasta do app e aplica a injeção binária no executável 'gtasa'
           cd payload_dir/Payload/$APP_DIR
-          EXEC_NAME=$(python3 -c "
-          import plistlib
-          try:
-              with open('Info.plist', 'rb') as f:
-                  pl = plistlib.load(f)
-              print(pl.get('CFBundleExecutable', 'gta_sa'))
-          except:
-              print('gta_sa')
-          ")
           
-          if [ ! -f "$EXEC_NAME" ]; then
-              # Se não achar pelo plist, pega o primeiro executável válido da pasta
-              EXEC_NAME=$(ls -p | grep -v / | head -n 1)
+          if [ -f "gtasa" ]; then
+            echo "Injetando CLEO.dylib no executável gtasa..."
+            insert_dylib --inplace --weak "@executable_path/CLEO.dylib" gtasa
+          else
+            echo "Aviso: Executável gtasa não encontrado diretamente, procurando..."
+            EXEC_FILE=$(ls -p | grep -v / | head -n 1)
+            insert_dylib --inplace --weak "@executable_path/CLEO.dylib" "$EXEC_FILE"
           fi
           
-          echo "Executável detectado com sucesso: $EXEC_NAME"
-          
-          # Copia os arquivos de suporte do CLEO para a raiz do app se necessário
           cd ../../..
           
           echo "Compactando de volta para .ipa..."
