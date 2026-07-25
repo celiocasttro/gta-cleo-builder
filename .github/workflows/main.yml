@@ -14,7 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3 libplist-utils
+          sudo apt-get install -y dpkg zip unzip curl python3
 
       - name: Baixar o GTA SA
         run: |
@@ -39,13 +39,8 @@ jobs:
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Entra na pasta do app e faz os ajustes
+          # Entra na pasta do app e executa o script Python integrado
           cd payload_dir/Payload/$APP_DIR
-          
-          # Converte o CLEO.plist binário para XML para poder editar com segurança
-          if [ -f "CLEO.plist" ]; then
-            plutil -convert xml1 CLEO.plist
-          fi
           
           python3 -c '
           import os
@@ -53,19 +48,26 @@ jobs:
 
           cleo_plist_path = "CLEO.plist"
           if os.path.exists(cleo_plist_path):
-              print("Atualizando CLEO.plist para aceitar o executável do jogo (gtasa)...")
-              with open(cleo_plist_path, "rb") as fp:
-                  plist_data = plistlib.load(fp)
-              
+              print("Lendo CLEO.plist...")
+              try:
+                  with open(cleo_plist_path, "rb") as fp:
+                      plist_data = plistlib.load(fp)
+              except Exception as e:
+                  print(f"Erro ao ler plist diretamente (pode estar em formato obsoleto/binário): {e}")
+                  plist_data = {}
+
+              if not isinstance(plist_data, dict):
+                  plist_data = {}
+
               if "Executables" not in plist_data:
-                  plist_data["Executables"] = []
+                  plist_data["Executables"] = ["gta3sa", "gtasager"]
               
               if "gtasa" not in plist_data["Executables"]:
                   plist_data["Executables"].append("gtasa")
               
               with open(cleo_plist_path, "wb") as fp:
-                  plistlib.dump(plist_data, fp)
-              print("CLEO.plist atualizado com sucesso!")
+                  plistlib.dump(plist_data, fp, fmt=plistlib.FMT_XML)
+              print("CLEO.plist atualizado e convertido para formato XML com sucesso!")
 
           # Injeta a referência da dylib no binário gtasa nativo
           exec_name = "gtasa"
@@ -90,11 +92,6 @@ jobs:
           else:
               print("A referência da dylib já estava presente.")
           '
-          
-          # Opcional: converte de volta para binário para manter o padrão limpo
-          if [ -f "CLEO.plist" ]; then
-            plutil -convert binary1 CLEO.plist
-          fi
           
           cd ../../..
           
