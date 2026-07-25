@@ -14,7 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3 python3-plist
+          sudo apt-get install -y dpkg zip unzip curl python3 libplist-utils
 
       - name: Baixar o GTA SA
         run: |
@@ -39,21 +39,24 @@ jobs:
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Entra na pasta do app e faz os ajustes via Python
+          # Entra na pasta do app e faz os ajustes
           cd payload_dir/Payload/$APP_DIR
+          
+          # Converte o CLEO.plist binário para XML para poder editar com segurança
+          if [ -f "CLEO.plist" ]; then
+            plutil -convert xml1 CLEO.plist
+          fi
           
           python3 -c '
           import os
           import plistlib
 
-          # 1. Atualiza o CLEO.plist para aceitar "gtasa" na lista de executáveis
           cleo_plist_path = "CLEO.plist"
           if os.path.exists(cleo_plist_path):
               print("Atualizando CLEO.plist para aceitar o executável do jogo (gtasa)...")
               with open(cleo_plist_path, "rb") as fp:
                   plist_data = plistlib.load(fp)
               
-              # Garante que a chave Executables existe e inclui "gtasa"
               if "Executables" not in plist_data:
                   plist_data["Executables"] = []
               
@@ -64,7 +67,7 @@ jobs:
                   plistlib.dump(plist_data, fp)
               print("CLEO.plist atualizado com sucesso!")
 
-          # 2. Injeta a referência da dylib no binário gtasa nativo
+          # Injeta a referência da dylib no binário gtasa nativo
           exec_name = "gtasa"
           if not os.path.exists(exec_name):
               for f in os.listdir("."):
@@ -87,6 +90,11 @@ jobs:
           else:
               print("A referência da dylib já estava presente.")
           '
+          
+          # Opcional: converte de volta para binário para manter o padrão limpo
+          if [ -f "CLEO.plist" ]; then
+            plutil -convert binary1 CLEO.plist
+          fi
           
           cd ../../..
           
