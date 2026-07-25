@@ -5,20 +5,29 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Baixar o Repositório
         uses: actions/checkout@v3
 
-      - name: Instalar Ferramentas do iOS
+      - name: Instalar Ferramentas de Descompactação
         run: |
-          brew install dpkg ldid
+          sudo apt-get update
+          sudo apt-get install -y dpkg zip unzip curl
 
-      - name: Baixar o GTA SA do MediaFire
+      - name: Baixar o GTA SA
         run: |
           echo "Baixando o IPA do GTA SA..."
-          curl -L -o gta.ipa "https://download1479.mediafire.com/dri0plgg65v34fu/dri0plgg65v34fu/GTA+PTBR.ipa"
+          # Usando parâmetros do curl para seguir redirecionamentos corretamente
+          curl -c ./cookie -s -L "https://www.mediafire.com/file/dri0plgg65v34fu/GTA+PTBR.ipa/file" > ./page.html
+          DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
+          echo "Link direto extraído: $DIRECT_URL"
+          curl -L -o gta.ipa "$DIRECT_URL"
+          
+          # Verifica se o arquivo baixado é realmente um zip/ipa válido
+          file gta.ipa
+          ls -lh gta.ipa
 
       - name: Injetar o CLEO
         run: |
@@ -32,6 +41,7 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
+          mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
           echo "Compactando de volta para .ipa..."
