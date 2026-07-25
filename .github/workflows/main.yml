@@ -14,15 +14,19 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl build-essential git
+          sudo apt-get install -y dpkg zip unzip curl build-essential
 
-      - name: Compilar o Injetor de Dylib
+      - name: Baixar e Compilar o Injetor de Dylib Direto
         run: |
-          git clone https://github.com/DHowett/insert_dylib.git
-          cd insert_dylib
-          make
-          sudo cp insert_dylib /usr/local/bin/
-          cd ..
+          # Baixa o código fonte diretamente em C sem precisar do git clone
+          curl -L -o insert_dylib.c https://raw.githubusercontent.com/DHowett/insert_dylib/master/insert_dylib.c
+          
+          # Compila o binário usando o GCC do sistema Linux
+          gcc insert_dylib.c -o insert_dylib
+          
+          # Instala o binário compilado no path do sistema
+          chmod +x insert_dylib
+          sudo mv insert_dylib /usr/local/bin/
 
       - name: Baixar o GTA SA
         run: |
@@ -43,11 +47,11 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
-          # Copia os arquivos extraídos do .deb exatamente para a raiz do .app (mesmo local do executável)
+          # Copia os arquivos extraídos do .deb para dentro da pasta principal do app .app
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Entra na pasta do app e aplica a injeção binária no executável 'gtasa'
+          # Entra na pasta do app e aplica a injeção binária estrutural
           cd payload_dir/Payload/$APP_DIR
           
           if [ -f "gtasa" ]; then
