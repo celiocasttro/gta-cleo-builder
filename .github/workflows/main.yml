@@ -14,7 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3
+          sudo apt-get install -y dpkg zip unzip curl python3 python3-plist
 
       - name: Baixar o GTA SA
         run: |
@@ -23,7 +23,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair e Injetar o CLEO com Python
+      - name: Extrair, Atualizar CLEO.plist e Injetar com Python
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -39,17 +39,36 @@ jobs:
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          # Entra na pasta do app e aplica a injeção diretamente no executável binário
+          # Entra na pasta do app e faz os ajustes via Python
           cd payload_dir/Payload/$APP_DIR
           
           python3 -c '
           import os
+          import plistlib
 
+          # 1. Atualiza o CLEO.plist para aceitar "gtasa" na lista de executáveis
+          cleo_plist_path = "CLEO.plist"
+          if os.path.exists(cleo_plist_path):
+              print("Atualizando CLEO.plist para aceitar o executável do jogo (gtasa)...")
+              with open(cleo_plist_path, "rb") as fp:
+                  plist_data = plistlib.load(fp)
+              
+              # Garante que a chave Executables existe e inclui "gtasa"
+              if "Executables" not in plist_data:
+                  plist_data["Executables"] = []
+              
+              if "gtasa" not in plist_data["Executables"]:
+                  plist_data["Executables"].append("gtasa")
+              
+              with open(cleo_plist_path, "wb") as fp:
+                  plistlib.dump(plist_data, fp)
+              print("CLEO.plist atualizado com sucesso!")
+
+          # 2. Injeta a referência da dylib no binário gtasa nativo
           exec_name = "gtasa"
           if not os.path.exists(exec_name):
-              # Procura o primeiro executável válido se o gtasa não estiver na raiz exata
               for f in os.listdir("."):
-                  if os.path.isfile(f) and "." not in f and f != "Info.plist":
+                  if os.path.isfile(f) and "." not in f and f != "Info.plist" and f != "CLEO.dylib":
                       exec_name = f
                       break
 
@@ -57,10 +76,8 @@ jobs:
           with open(exec_name, "rb") as f:
               data = bytearray(f.read())
 
-          # Adiciona a string do caminho da dylib se não existir
           dylib_path = b"@executable_path/CLEO.dylib\x00"
           if dylib_path not in data:
-              # Garanta alinhamento de 4 bytes
               while len(dylib_path) % 4 != 0:
                   dylib_path += b"\x00"
               data.extend(dylib_path)
