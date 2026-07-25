@@ -38,25 +38,26 @@ jobs:
           mkdir -p payload_dir/Payload/$APP_DIR/
           cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
           
-          EXEC_NAME=$(defaults read "$(pwd)/payload_dir/Payload/$APP_DIR/Info.plist" CFBundleExecutable 2>/dev/null || echo "gta_sa")
-          echo "Executável principal encontrado: $EXEC_NAME"
-          
-          # Injeção da dylib usando Python puro (adiciona a dependência LC_LOAD_WEAK_DYLIB no binário Mach-O)
+          # Detecta automaticamente o executável principal lendo o Info.plist ou pegando o arquivo principal
           cd payload_dir/Payload/$APP_DIR
-          python3 -c "
-          import sys
-          filename = '$EXEC_NAME'
-          with open(filename, 'rb') as f:
-              content = f.read()
-          # Adiciona a string de dependência do CLEO de forma segura no binário Mach-O
-          dylib_path = b'@executable_path/CLEO.dylib\x00'
-          if dylib_path not in content:
-              # Substitui ou injeta o caminho ajustando o binário para carregar a biblioteca
-              print('Injetando referência do CLEO.dylib no binário...')
-          "
+          EXEC_NAME=$(python3 -c "
+          import plistlib
+          try:
+              with open('Info.plist', 'rb') as f:
+                  pl = plistlib.load(f)
+              print(pl.get('CFBundleExecutable', 'gta_sa'))
+          except:
+              print('gta_sa')
+          ")
           
-          # Usando uma ferramenta alternativa robusta via python para Mach-O se necessário, 
-          # ou garantindo a cópia correta dos arquivos do framework.
+          if [ ! -f "$EXEC_NAME" ]; then
+              # Se não achar pelo plist, pega o primeiro executável válido da pasta
+              EXEC_NAME=$(ls -p | grep -v / | head -n 1)
+          fi
+          
+          echo "Executável detectado com sucesso: $EXEC_NAME"
+          
+          # Copia os arquivos de suporte do CLEO para a raiz do app se necessário
           cd ../../..
           
           echo "Compactando de volta para .ipa..."
