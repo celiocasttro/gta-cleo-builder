@@ -1,0 +1,46 @@
+name: Criar GTA SA com CLEO
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Baixar o Repositório
+        uses: actions/checkout@v3
+
+      - name: Instalar Ferramentas do iOS
+        run: |
+          brew install dpkg ldid
+
+      - name: Baixar o GTA SA do MediaFire
+        run: |
+          echo "Baixando o IPA do GTA SA..."
+          curl -L -o gta.ipa "https://download1479.mediafire.com/dri0plgg65v34fu/dri0plgg65v34fu/GTA+PTBR.ipa"
+
+      - name: Injetar o CLEO
+        run: |
+          echo "Extraindo o CLEO.deb..."
+          mkdir -p deb_extracted
+          dpkg-deb -R CLEO.deb deb_extracted
+          
+          echo "Descompactando o IPA do GTA..."
+          unzip -q gta.ipa -d payload_dir
+          
+          APP_DIR=$(ls payload_dir/Payload/)
+          echo "Pasta do app encontrada: $APP_DIR"
+          
+          cp -R deb_extracted/Library/MobileSubstrate/DynamicLibraries/* payload_dir/Payload/$APP_DIR/ || true
+          
+          echo "Compactando de volta para .ipa..."
+          cd payload_dir
+          zip -9 -r ../GTA_SA_CLEO.ipa Payload
+          cd ..
+
+      - name: Salvar o IPA Pronto (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTA-SA-Com-CLEO
+          path: GTA_SA_CLEO.ipa
