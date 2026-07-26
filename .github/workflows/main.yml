@@ -1,4 +1,4 @@
-name: Criar GTA SA com CLEO
+Name: Criar GTA SA com CLEO
 
 on:
   workflow_dispatch:
@@ -19,11 +19,11 @@ jobs:
       - name: Baixar o GTA SA
         run: |
           echo "Baixando o IPA do GTA SA..."
-          curl -c ./cookie -s -L "https://www.mediafire.com/file/dri0plgg65v34fu/GTA+PTBR.ipa/file" > ./page.html
+          curl -c ./cookie -s -L "https://www.mediafire.com/file/fkjuog2c2v6ovns/GTASA-MOD_V.ipa/file" > ./page.html
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair, Ajustar Frameworks e Injetar com Python
+      - name: Extrair, Remover Propagandas, Ajustar Frameworks e Injetar
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -35,7 +35,14 @@ jobs:
           APP_DIR=$(ls payload_dir/Payload/)
           echo "Pasta do app encontrada: $APP_DIR"
           
-          # Cria a estrutura de Frameworks dentro do app (padrão aceito por assinadores de IPA)
+          # ==========================================
+          # REMOÇÃO DE PROPAGANDAS E ARQUIVOS INDESEJADOS
+          # ==========================================
+          echo "Removendo resquícios de anúncios e telas de introdução da IPAOMTK..."
+          # Remove arquivos HTML, imagens de splash de terceiros ou scripts órfãos se existirem na raiz do app
+          find payload_dir/Payload/$APP_DIR -maxdepth 2 -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" \) -delete || true
+          
+          # Cria a estrutura de Frameworks dentro do app
           mkdir -p payload_dir/Payload/$APP_DIR/Frameworks
           
           # Copia a dylib e o plist para a pasta Frameworks
@@ -49,7 +56,7 @@ jobs:
           import os
           import plistlib
 
-          # 1. Atualiza o CLEO.plist para aceitar "gtasa" e o caminho da Framework
+          # 1. Atualiza o CLEO.plist para aceitar o binário correto e o caminho da Framework
           cleo_plist_path = "Frameworks/CLEO.plist"
           if os.path.exists(cleo_plist_path):
               try:
@@ -62,17 +69,18 @@ jobs:
                   plist_data = {}
 
               if "Executables" not in plist_data:
-                  plist_data["Executables"] = ["gta3sa", "gtasager"]
+                  plist_data["Executables"] = ["gta3sa", "gtasager", "gtasa"]
               
-              if "gtasa" not in plist_data["Executables"]:
-                  plist_data["Executables"].append("gtasa")
+              for target_exec in ["gta3sa", "gtasa"]:
+                  if target_exec not in plist_data["Executables"]:
+                      plist_data["Executables"].append(target_exec)
               
               with open(cleo_plist_path, "wb") as fp:
                   plistlib.dump(plist_data, fp, fmt=plistlib.FMT_XML)
               print("CLEO.plist atualizado com sucesso!")
 
-          # 2. Injeta a referência apontando para o Frameworks no binário gtasa
-          exec_name = "gtasa"
+          # 2. Injeta a referência apontando para o Frameworks no binário executável
+          exec_name = "gta3sa"
           if not os.path.exists(exec_name):
               for f in os.listdir("."):
                   if os.path.isfile(f) and "." not in f and f != "Info.plist":
@@ -83,7 +91,6 @@ jobs:
           with open(exec_name, "rb") as f:
               data = bytearray(f.read())
 
-          # Caminho relativo para a dylib dentro da pasta Frameworks
           dylib_path = b"@executable_path/Frameworks/CLEO.dylib\x00"
           if dylib_path not in data:
               while len(dylib_path) % 4 != 0:
