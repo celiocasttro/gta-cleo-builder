@@ -1,4 +1,4 @@
-Name: Criar GTA SA com CLEO
+name: Criar GTA SA com CLEO
 
 on:
   workflow_dispatch:
@@ -39,7 +39,6 @@ jobs:
           # REMOÇÃO DE PROPAGANDAS E ARQUIVOS INDESEJADOS
           # ==========================================
           echo "Removendo resquícios de anúncios e telas de introdução da IPAOMTK..."
-          # Remove arquivos HTML, imagens de splash de terceiros ou scripts órfãos se existirem na raiz do app
           find payload_dir/Payload/$APP_DIR -maxdepth 2 -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" \) -delete || true
           
           # Cria a estrutura de Frameworks dentro do app
