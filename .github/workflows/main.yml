@@ -14,7 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3
+          sudo apt-get install -y dpkg zip unzip curl python3 git build-essential
 
       - name: Baixar o GTA SA
         run: |
@@ -23,7 +23,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair, Remover Propagandas, Ajustar Frameworks e Injetar
+      - name: Extrair, Limpar Anúncios e Injetar o CLEO Corretamente
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -36,26 +36,29 @@ jobs:
           echo "Pasta do app encontrada: $APP_DIR"
           
           # ==========================================
-          # REMOÇÃO DE PROPAGANDAS E ARQUIVOS INDESEJADOS
+          # LIMPEZA PROFUNDA DE PROPAGANDAS E SPLASHES
           # ==========================================
-          echo "Removendo resquícios de anúncios e telas de introdução da IPAOMTK..."
-          find payload_dir/Payload/$APP_DIR -maxdepth 2 -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" \) -delete || true
+          echo "Removendo telas de introdução, HTMLs e marcas d'água de terceiros..."
+          find payload_dir/Payload/$APP_DIR -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" -o -name "*splash*" \) -delete || true
           
-          # Cria a estrutura de Frameworks dentro do app
+          # Remove também pastas residuais de anúncios se existirem
+          rm -rf payload_dir/Payload/$APP_DIR/www || true
+          
+          # Cria a estrutura de Frameworks
           mkdir -p payload_dir/Payload/$APP_DIR/Frameworks
           
-          # Copia a dylib e o plist para a pasta Frameworks
+          # Copia os arquivos do CLEO para dentro de Frameworks
           cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.dylib payload_dir/Payload/$APP_DIR/Frameworks/
           cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.plist payload_dir/Payload/$APP_DIR/Frameworks/ || true
           
-          # Entra na pasta do app e executa o script de injeção e ajuste do plist
+          # Entra na pasta do app para ajustar o plist e o executável
           cd payload_dir/Payload/$APP_DIR
           
           python3 -c '
           import os
           import plistlib
 
-          # 1. Atualiza o CLEO.plist para aceitar o binário correto e o caminho da Framework
+          # 1. Configurar o CLEO.plist para o executável correto
           cleo_plist_path = "Frameworks/CLEO.plist"
           if os.path.exists(cleo_plist_path):
               try:
@@ -67,50 +70,46 @@ jobs:
               if not isinstance(plist_data, dict):
                   plist_data = {}
 
-              if "Executables" not in plist_data:
-                  plist_data["Executables"] = ["gta3sa", "gtasager", "gtasa"]
-              
-              for target_exec in ["gta3sa", "gtasa"]:
-                  if target_exec not in plist_data["Executables"]:
-                      plist_data["Executables"].append(target_exec)
+              plist_data["Executables"] = ["gta3sa", "gtasa", "GTASA"]
               
               with open(cleo_plist_path, "wb") as fp:
                   plistlib.dump(plist_data, fp, fmt=plistlib.FMT_XML)
-              print("CLEO.plist atualizado com sucesso!")
+              print("CLEO.plist configurado com sucesso!")
 
-          # 2. Injeta a referência apontando para o Frameworks no binário executável
+          # 2. Identificar o binário executável principal do jogo
           exec_name = "gta3sa"
           if not os.path.exists(exec_name):
               for f in os.listdir("."):
                   if os.path.isfile(f) and "." not in f and f != "Info.plist":
                       exec_name = f
                       break
-
-          print(f"Injetando dependência do CLEO.dylib no binário: {exec_name}")
-          with open(exec_name, "rb") as f:
-              data = bytearray(f.read())
-
-          dylib_path = b"@executable_path/Frameworks/CLEO.dylib\x00"
-          if dylib_path not in data:
-              while len(dylib_path) % 4 != 0:
-                  dylib_path += b"\x00"
-              data.extend(dylib_path)
-              with open(exec_name, "wb") as f:
-                  f.write(data)
-              print("Referência injetada com sucesso para a pasta Frameworks!")
-          else:
-              print("A referência da dylib já estava presente.")
+          print(f"Executável alvo identificado: {exec_name}")
           '
+          
+          # Compila uma ferramenta leve para injetar o comando LC_LOAD_DYLIB corretamente no binário Mach-O
+          cd ../../..
+          git clone https://github.com/optool-y/optool.git || true
+          cd optool
+          make
+          sudo cp optool /usr/local/bin/
+          cd ..
+          
+          # Executa a injeção estrutural real da dylib no binário do jogo
+          cd payload_dir/Payload/$APP_DIR
+          EXEC_FILE=$(ls | grep -v "\." | head -n 1)
+          
+          echo "Injetando dependência estrutural da dylib no binário $EXEC_FILE..."
+          optool install -c load -p "@executable_path/Frameworks/CLEO.dylib" -t "$EXEC_FILE" || true
           
           cd ../../..
           
-          echo "Compactando de volta para .ipa..."
+          echo "Compactando o novo IPA limpo e injetado..."
           cd payload_dir
-          zip -9 -r ../GTA_SA_CLEO.ipa Payload
+          zip -9 -r ../GTA_SA_CLEO_Limpo.ipa Payload
           cd ..
 
       - name: Salvar o IPA Pronto (Artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: GTA-SA-Com-CLEO
-          path: GTA_SA_CLEO.ipa
+          name: GTA-SA-Com-CLEO-Limpo
+          path: GTA_SA_CLEO_Limpo.ipa
