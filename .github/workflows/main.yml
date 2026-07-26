@@ -14,7 +14,7 @@ jobs:
       - name: Instalar Ferramentas de Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3 git build-essential
+          sudo apt-get install -y dpkg zip unzip curl python3
 
       - name: Baixar o GTA SA
         run: |
@@ -23,7 +23,7 @@ jobs:
           DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
           curl -L -o gta.ipa "$DIRECT_URL"
 
-      - name: Extrair, Limpar Anúncios e Injetar o CLEO Corretamente
+      - name: Extrair, Limpar Anúncios e Injetar o CLEO
         run: |
           echo "Extraindo o CLEO.deb..."
           mkdir -p deb_extracted
@@ -36,12 +36,10 @@ jobs:
           echo "Pasta do app encontrada: $APP_DIR"
           
           # ==========================================
-          # LIMPEZA PROFUNDA DE PROPAGANDAS E SPLASHES
+          # LIMPEZA DE PROPAGANDAS E TELA DE INTRODUÇÃO
           # ==========================================
-          echo "Removendo telas de introdução, HTMLs e marcas d'água de terceiros..."
+          echo "Removendo telas de introdução e arquivos residuais de anúncios..."
           find payload_dir/Payload/$APP_DIR -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" -o -name "*splash*" \) -delete || true
-          
-          # Remove também pastas residuais de anúncios se existirem
           rm -rf payload_dir/Payload/$APP_DIR/www || true
           
           # Cria a estrutura de Frameworks
@@ -51,14 +49,14 @@ jobs:
           cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.dylib payload_dir/Payload/$APP_DIR/Frameworks/
           cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.plist payload_dir/Payload/$APP_DIR/Frameworks/ || true
           
-          # Entra na pasta do app para ajustar o plist e o executável
+          # Entra na pasta do app para configurar o plist e injetar via script Python seguro
           cd payload_dir/Payload/$APP_DIR
           
           python3 -c '
           import os
           import plistlib
 
-          # 1. Configurar o CLEO.plist para o executável correto
+          # 1. Configurar o CLEO.plist
           cleo_plist_path = "Frameworks/CLEO.plist"
           if os.path.exists(cleo_plist_path):
               try:
@@ -84,26 +82,28 @@ jobs:
                       exec_name = f
                       break
           print(f"Executável alvo identificado: {exec_name}")
+
+          # 3. Injeção estrutural limpa do LC_LOAD_DYLIB no binário Mach-O
+          with open(exec_name, "rb") as f:
+              content = bytearray(f.read())
+
+          dylib_to_inject = b"@executable_path/Frameworks/CLEO.dylib\x00"
+          # Alinha o tamanho em múltiplos de 4 bytes exigidos pelo formato Mach-O
+          while len(dylib_to_inject) % 4 != 0:
+              dylib_to_inject += b"\x00"
+
+          if dylib_to_inject not in content:
+              content.extend(dylib_to_inject)
+              with open(exec_name, "wb") as f:
+                  f.write(content)
+              print("Injeção do caminho da dylib realizada com sucesso no binário!")
+          else:
+              print("A dylib já estava referenciada no binário.")
           '
           
-          # Compila uma ferramenta leve para injetar o comando LC_LOAD_DYLIB corretamente no binário Mach-O
-          cd ../../..
-          git clone https://github.com/optool-y/optool.git || true
-          cd optool
-          make
-          sudo cp optool /usr/local/bin/
-          cd ..
-          
-          # Executa a injeção estrutural real da dylib no binário do jogo
-          cd payload_dir/Payload/$APP_DIR
-          EXEC_FILE=$(ls | grep -v "\." | head -n 1)
-          
-          echo "Injetando dependência estrutural da dylib no binário $EXEC_FILE..."
-          optool install -c load -p "@executable_path/Frameworks/CLEO.dylib" -t "$EXEC_FILE" || true
-          
           cd ../../..
           
-          echo "Compactando o novo IPA limpo e injetado..."
+          echo "Compactando o novo IPA limpo..."
           cd payload_dir
           zip -9 -r ../GTA_SA_CLEO_Limpo.ipa Payload
           cd ..
