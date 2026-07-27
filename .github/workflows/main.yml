@@ -1,4 +1,4 @@
-name: Criar GTA SA com CLEO
+name: Gerar Apenas GTASA.dylib Modificado
 
 on:
   workflow_dispatch:
@@ -11,101 +11,53 @@ jobs:
       - name: Baixar o Repositório
         uses: actions/checkout@v3
 
-      - name: Instalar Ferramentas de Sistema
+      - name: Instalar Ferramentas
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg zip unzip curl python3
+          sudo apt-get install -y python3
 
-      - name: Baixar o GTA SA
+      - name: Aplicar Patch de Login no GTASA.dylib
         run: |
-          echo "Baixando o IPA do GTA SA..."
-          curl -c ./cookie -s -L "https://www.mediafire.com/file/fkjuog2c2v6ovns/GTASA-MOD_V.ipa/file" > ./page.html
-          DIRECT_URL=$(grep -o 'https://download.*\.mediafire.com/[^"]*' ./page.html | head -n 1)
-          curl -L -o gta.ipa "$DIRECT_URL"
-
-      - name: Extrair, Limpar Anúncios e Injetar o CLEO
-        run: |
-          echo "Extraindo o CLEO.deb..."
-          mkdir -p deb_extracted
-          dpkg-deb -R CLEO.deb deb_extracted
+          # Verifica se o arquivo está na raiz do repositório
+          DYLIB_PATH="Frameworks/GTASA.dylib"
           
-          echo "Descompactando o IPA do GTA..."
-          unzip -q gta.ipa -d payload_dir
+          if [ ! -f "$DYLIB_PATH" ]; then
+            # Se não estiver na pasta Frameworks, procura em qualquer lugar do repo
+            DYLIB_PATH=$(find . -name "GTASA.dylib" | head -n 1)
+          fi
           
-          APP_DIR=$(ls payload_dir/Payload/)
-          echo "Pasta do app encontrada: $APP_DIR"
-          
-          # ==========================================
-          # LIMPEZA DE PROPAGANDAS E TELA DE INTRODUÇÃO
-          # ==========================================
-          echo "Removendo telas de introdução e arquivos residuais de anúncios..."
-          find payload_dir/Payload/$APP_DIR -type f \( -name "*.html" -o -name "*ipao*" -o -name "*omtk*" -o -name "*splash*" \) -delete || true
-          rm -rf payload_dir/Payload/$APP_DIR/www || true
-          
-          # Cria a estrutura de Frameworks
-          mkdir -p payload_dir/Payload/$APP_DIR/Frameworks
-          
-          # Copia os arquivos do CLEO para dentro de Frameworks
-          cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.dylib payload_dir/Payload/$APP_DIR/Frameworks/
-          cp deb_extracted/Library/MobileSubstrate/DynamicLibraries/CLEO.plist payload_dir/Payload/$APP_DIR/Frameworks/ || true
-          
-          # Entra na pasta do app para configurar o plist e injetar via script Python seguro
-          cd payload_dir/Payload/$APP_DIR
+          echo "Aplicando patch em: $DYLIB_PATH"
           
           python3 -c '
+          import sys
           import os
-          import plistlib
 
-          cleo_plist_path = "Frameworks/CLEO.plist"
-          if os.path.exists(cleo_plist_path):
-              try:
-                  with open(cleo_plist_path, "rb") as fp:
-                      plist_data = plistlib.load(fp)
-              except:
-                  plist_data = {}
-
-              if not isinstance(plist_data, dict):
-                  plist_data = {}
-
-              plist_data["Executables"] = ["gta3sa"]
-              
-              with open(cleo_plist_path, "wb") as fp:
-                  plistlib.dump(plist_data, fp, fmt=plistlib.FMT_XML)
-              print("CLEO.plist ajustado focando no gta3sa!")
-
-          exec_name = "gta3sa"
-          if not os.path.exists(exec_name):
-              for f in os.listdir("."):
-                  if os.path.isfile(f) and "." not in f and f != "Info.plist":
-                      exec_name = f
+          # Pega o caminho passado pelo shell ou busca localmente
+          path = "GTASA.dylib"
+          if not os.path.exists(path):
+              for root, dirs, files in os.walk("."):
+                  if "GTASA.dylib" in files:
+                      path = os.path.join(root, "GTASA.dylib")
                       break
-          print(f"Executável alvo identificado: {exec_name}")
 
-          with open(exec_name, "rb") as f:
+          print(f"Modificando arquivo: {path}")
+          with open(path, "rb") as f:
               content = bytearray(f.read())
+          
+          # Alvos de URL de login do iGameGod/iOSGods para neutralizar
+          targets = [b"iosgods.com/login", b"iGameGod/Login", b"auth.iosgods.com"]
+          for target in targets:
+              if target in content:
+                  content = content.replace(target, b"\x00" * len(target))
+                  print(f"Alvo {target} neutralizado com sucesso!")
 
-          dylib_to_inject = b"@executable_path/Frameworks/CLEO.dylib\x00"
-          while len(dylib_to_inject) % 4 != 0:
-              dylib_to_inject += b"\x00"
-
-          if dylib_to_inject not in content:
-              content.extend(dylib_to_inject)
-              with open(exec_name, "wb") as f:
-                  f.write(content)
-              print("Injeção do caminho da dylib realizada com sucesso no binário!")
-          else:
-              print("A dylib já estava referenciada no binário.")
+          with open(path, "wb") as f:
+              f.write(content)
+          print("Patch aplicado com sucesso na dylib!")
           '
-          
-          cd ../../..
-          
-          echo "Compactando o novo IPA limpo..."
-          cd payload_dir
-          zip -9 -r ../GTA_SA_CLEO_Limpo.ipa Payload
-          cd ..
 
-      - name: Salvar o IPA Pronto (Artifact)
+      - name: Salvar Apenas a Dylib Modificada (Artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: GTA-SA-Com-CLEO-Limpo
-          path: GTA_SA_CLEO_Limpo.ipa
+          name: GTASA-Dylib-Sem-Login
+          path: **/GTASA.dylib
