@@ -1,63 +1,24 @@
-name: Gerar Apenas GTASA.dylib Modificado
+name: Baixar Arquivo Pesado
 
 on:
   workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'Cole o link direto do arquivo aqui'
+        required: true
+        type: string
 
 jobs:
-  build:
+  download-file:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Baixar o Repositório
-        uses: actions/checkout@v3
-
-      - name: Instalar Ferramentas
+      - name: Baixando arquivo com cURL
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3
+          # O comando abaixo baixa o arquivo mantendo o nome original
+          curl -L -O "${{ inputs.file_url }}"
 
-      - name: Aplicar Patch de Login no GTASA.dylib
-        run: |
-          # Verifica se o arquivo está na raiz do repositório
-          DYLIB_PATH="Frameworks/GTASA.dylib"
-          
-          if [ ! -f "$DYLIB_PATH" ]; then
-            # Se não estiver na pasta Frameworks, procura em qualquer lugar do repo
-            DYLIB_PATH=$(find . -name "GTASA.dylib" | head -n 1)
-          fi
-          
-          echo "Aplicando patch em: $DYLIB_PATH"
-          
-          python3 -c '
-          import sys
-          import os
-
-          # Pega o caminho passado pelo shell ou busca localmente
-          path = "GTASA.dylib"
-          if not os.path.exists(path):
-              for root, dirs, files in os.walk("."):
-                  if "GTASA.dylib" in files:
-                      path = os.path.join(root, "GTASA.dylib")
-                      break
-
-          print(f"Modificando arquivo: {path}")
-          with open(path, "rb") as f:
-              content = bytearray(f.read())
-          
-          # Alvos de URL de login do iGameGod/iOSGods para neutralizar
-          targets = [b"iosgods.com/login", b"iGameGod/Login", b"auth.iosgods.com"]
-          for target in targets:
-              if target in content:
-                  content = content.replace(target, b"\x00" * len(target))
-                  print(f"Alvo {target} neutralizado com sucesso!")
-
-          with open(path, "wb") as f:
-              f.write(content)
-          print("Patch aplicado com sucesso na dylib!")
-          '
-
-      - name: Salvar Apenas a Dylib Modificada (Artifact)
+      - name: Salvando o arquivo como Artefato
         uses: actions/upload-artifact@v4
         with:
-          name: GTASA-Dylib-Sem-Login
-          path: **/GTASA.dylib
+          name: arquivo-baixado
+          path: ./* # Salva qualquer arquivo gerado/baixado no diretório atual
